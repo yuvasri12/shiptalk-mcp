@@ -1,0 +1,35 @@
+{
+  "name": "shiptalk-mcp",
+  "version": "1.0.0",
+  "description": "Voice-first shipment concierge: a TypeScript MCP server (Streamable HTTP) with a web MCP client that simulates an Alexa+ assistant. Mock data only. Built for the Amazon Developer Hackathon, Alexa+ track.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuvasri12/shiptalk-mcp.git"
+  },
+  "keywords": ["mcp", "alexa", "streamable-http", "typescript", "shipment-tracking"],
+  "author": "Yuvasri S",
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/yuvasri12/shiptalk-mcp/issues"
+  },
+  "homepage": "https://github.com/yuvasri12/shiptalk-mcp#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "express": "^5.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5"
+  }
+}

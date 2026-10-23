@@ -8,10 +8,10 @@ description: Use when the user asks about shipment status, delayed or at-risk sh
 ShipTalk exposes mock shipment data through MCP tools. Use it to answer shipment questions concisely, in a way that works when read aloud.
 
 ## Tools
-- `track_shipment(shipment_id)`: current status, location, ETA.
-- `list_at_risk_shipments(days)`: shipments likely to miss their ETA in the next N days.
-- `explain_delay(shipment_id)`: plain-language reason for a delay.
-- `draft_customer_update(shipment_id, tone)`: short message a customer service agent could send.
+- `track_shipment(shipmentId)`: status, ETA and latest event for one shipment (ID like SHP-1001).
+- `list_at_risk_shipments(status?)`: delayed or at-risk shipments. Optional status filter: all, delayed or at_risk.
+- `explain_delay(shipmentId)`: plain-language reason for a delay.
+- `draft_customer_update(shipmentId, tone?)`: short message a customer service agent could send. Tone: friendly or formal.
 
 ## How to use
 1. If the user gives a shipment ID, call `track_shipment` first.

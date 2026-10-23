@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShipTalk - MCP client</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#14181f; --card:#ffffff; --muted:#5b6575; --line:#dde2ea; --accent:#0b6bcb; --bad:#b42318; --warn:#b54708; --ok:#067647; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1319; --fg:#e8ecf2; --card:#171d26; --muted:#9aa5b5; --line:#2a3340; --accent:#5aa9ff; --bad:#ff8a80; --warn:#ffb86b; --ok:#5fd39a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width: 880px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { margin: 0 0 4px; font-size: 1.5rem; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  input[type=text] { flex:1; min-width:200px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); font-size:1rem; }
+  button { padding:10px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); font-size:0.95rem; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.chip { font-size:0.85rem; padding:6px 10px; }
+  button.listening { border-color:var(--bad); color:var(--bad); }
+  .status { font-size:0.85rem; color:var(--muted); margin-top:8px; }
+  #answer { font-size:1.1rem; line-height:1.5; min-height:1.5em; }
+  .tl { list-style:none; margin:10px 0 0; padding:0 0 0 14px; border-left:2px solid var(--line); }
+  .tl li { margin:0 0 10px; padding-left:10px; position:relative; }
+  .tl li::before { content:""; position:absolute; left:-20px; top:6px; width:10px; height:10px; border-radius:50%; background:var(--accent); }
+  .tl small { color:var(--muted); display:block; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.8rem; border:1px solid var(--line); margin-left:6px; }
+  .delayed, .at_risk { color: var(--warn); } .delivered, .in_transit { color: var(--ok); }
+  .ship { margin-bottom: 12px; }
+  pre { margin:0; max-height:260px; overflow:auto; font-size:0.78rem; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
+  label.inline { font-size:0.9rem; color:var(--muted); display:flex; gap:6px; align-items:center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ShipTalk</h1>
+  <p class="sub">Simulated voice assistant. This page is a real MCP client talking to the ShipTalk server over Streamable HTTP. All data is mock data.</p>
+
+  <div class="card">
+    <div class="row">
+      <input id="q" type="text" placeholder="Ask: Where is SHP-1002?" autocomplete="off">
+      <button id="send" class="primary">Ask</button>
+      <button id="mic">Speak</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="chip" data-q="Where is SHP-1002?">Where is SHP-1002?</button>
+      <button class="chip" data-q="Which shipments are at risk?">Which shipments are at risk?</button>
+      <button class="chip" data-q="Why is SHP-1003 at risk?">Why is SHP-1003 at risk?</button>
+      <button class="chip" data-q="Draft an update for SHP-1002">Draft an update for SHP-1002</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="inline"><input id="speak" type="checkbox" checked> Read answers aloud</label>
+    </div>
+    <div class="status" id="status">Connecting...</div>
+  </div>
+
+  <div class="card">
+    <div id="answer" aria-live="polite">Ask a question to begin.</div>
+    <div id="views"></div>
+  </div>
+
+  <div class="card">
+    <strong>MCP traffic</strong> <span class="status">(JSON-RPC over Streamable HTTP)</span>
+    <pre id="log"></pre>
+  </div>
+</main>
+
+<script>
+const MCP_URL = "/mcp";
+let protocolVersion = null;
+let nextId = 1;
+
+const $ = (id) => document.getElementById(id);
+const logEl = $("log");
+
+function log(dir, obj, ms) {
+  const head = ms !== undefined ? dir + " (" + ms + " ms)" : dir;
+  logEl.textContent += head + " " + JSON.stringify(obj) + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function baseHeaders() {
+  const h = { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" };
+  if (protocolVersion) h["MCP-Protocol-Version"] = protocolVersion;
+  return h;
+}
+
+async function rpc(method, params) {
+  const body = { jsonrpc: "2.0", id: nextId++, method, params };
+  log(">>", body);
+  const t = performance.now();
+  const res = await fetch(MCP_URL, { method: "POST", headers: baseHeaders(), body: JSON.stringify(body) });
+  const ms = Math.round(performance.now() - t);
+  const json = await res.json();
+  log("<<", json, ms);
+  if (!res.ok || json.error) {
+    throw new Error((json.error && json.error.message) || ("HTTP " + res.status));
+  }
+  return { result: json.result, ms };
+}
+
+async function notify(method) {
+  const body = { jsonrpc: "2.0", method };
+  log(">>", body);
+  const res = await fetch(MCP_URL, { method: "POST", headers: baseHeaders(), body: JSON.stringify(body) });
+  log("<<", { status: res.status });
+}
+
+async function connect() {
+  try {
+    const init = await rpc("initialize", {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "shiptalk-web-client", version: "0.1.0" }
+    });
+    protocolVersion = init.result.protocolVersion;
+    await notify("notifications/initialized");
+    const list = await rpc("tools/list", {});
+    $("status").textContent = "Connected. MCP " + protocolVersion + ", " + list.result.tools.length + " tools: " +
+      list.result.tools.map((t) => t.name).join(", ");
+  } catch (e) {
+    $("status").textContent = "Could not connect: " + e.message;
+  }
+}
+
+function route(text) {
+  const m = text.match(/shp[-\s]?(\d{4})/i);
+  const id = m ? "SHP-" + m[1] : null;
+  const t = text.toLowerCase();
+  if (id && /why|reason|explain|cause/.test(t)) return { name: "explain_delay", arguments: { shipmentId: id } };
+  if (id && /update|message|draft|email|tell/.test(t)) return { name: "draft_customer_update", arguments: { shipmentId: id } };
+  if (id) return { name: "track_shipment", arguments: { shipmentId: id } };
+  if (/risk|delay|late|problem/.test(t)) return { name: "list_at_risk_shipments", arguments: {} };
+  return null;
+}
+
+function renderShipment(s) {
+  const wrap = document.createElement("div");
+  wrap.className = "ship";
+  const title = document.createElement("div");
+  title.textContent = s.id + " - " + s.customer + " (" + s.origin + " to " + s.destination + ")";
+  const badge = document.createElement("span");
+  badge.className = "badge " + s.status;
+  badge.textContent = s.status.replace("_", " ") + ", ETA " + s.eta;
+  title.appendChild(badge);
+  wrap.appendChild(title);
+  const ul = document.createElement("ul");
+  ul.className = "tl";
+  s.events.forEach((ev) => {
+    const li = document.createElement("li");
+    li.textContent = ev.note + " - " + ev.location;
+    const sm = document.createElement("small");
+    sm.textContent = ev.time;
+    li.appendChild(sm);
+    ul.appendChild(li);
+  });
+  wrap.appendChild(ul);
+  return wrap;
+}
+
+async function ask(text) {
+  text = text.trim();
+  if (!text) return;
+  const views = $("views");
+  views.textContent = "";
+  const call = route(text);
+  if (!call) {
+    $("answer").textContent = "Try asking about a shipment ID like SHP-1002, or ask which shipments are at risk.";
+    return;
+  }
+  $("answer").textContent = "Working...";
+  try {
+    const { result, ms } = await rpc("tools/call", call);
+    const msg = (result.content && result.content[0] && result.content[0].text) || "";
+    $("answer").textContent = msg;
+    const sc = result.structuredContent || {};
+    if (sc.shipment) views.appendChild(renderShipment(sc.shipment));
+    if (sc.shipments) sc.shipments.forEach((s) => views.appendChild(renderShipment(s)));
+    $("status").textContent = "Tool " + call.name + " answered in " + ms + " ms";
+    if ($("speak").checked && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
+    }
+  } catch (e) {
+    $("answer").textContent = "Error: " + e.message;
+  }
+}
+
+$("send").addEventListener("click", () => ask($("q").value));
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") ask($("q").value); });
+document.querySelectorAll("button.chip").forEach((b) =>
+  b.addEventListener("click", () => { $("q").value = b.dataset.q; ask(b.dataset.q); })
+);
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) {
+  $("mic").style.display = "none";
+} else {
+  const rec = new SR();
+  rec.lang = "en-US";
+  rec.interimResults = false;
+  rec.onresult = (ev) => { const t = ev.results[0][0].transcript; $("q").value = t; ask(t); };
+  rec.onend = () => { $("mic").classList.remove("listening"); $("mic").textContent = "Speak"; };
+  rec.onerror = (e) => { $("mic").classList.remove("listening"); $("mic").textContent = "Speak"; $("status").textContent = "Microphone error: " + e.error + (e.error === "network" ? " (the browser's speech service is unreachable from this network)" : e.error === "not-allowed" ? " (allow microphone access for this site)" : ""); };  $("mic").addEventListener("click", () => {
+    $("mic").classList.add("listening");
+    $("mic").textContent = "Listening...";
+    rec.start();
+  });
+}
+
+connect();
+</script>
+</body>
+</html>
